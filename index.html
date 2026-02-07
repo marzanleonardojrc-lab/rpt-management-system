@@ -3,58 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2026 RPT Collection System</title>
+    <title>Municipal RPT System</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; padding: 20px; }
-        .card { background: white; max-width: 480px; margin: 0 auto; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h2 { text-align: center; color: #1a3c34; margin-top: 0; }
-        label { display: block; margin-top: 15px; font-weight: 600; color: #444; }
-        input[type="number"], input[type="date"] { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 16px; }
+        /* Screen Styles */
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #eef2f5; padding: 20px; }
+        .card { background: white; max-width: 600px; margin: 0 auto; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h2 { text-align: center; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; }
         
-        .results { margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
-        .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.95rem; }
-        .total { font-weight: bold; font-size: 1.2rem; color: #2980b9; margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px; }
-        .status-msg { text-align: center; font-size: 0.85rem; margin-top: 5px; font-style: italic; }
-        .discount-msg { color: #27ae60; }
-        .penalty-msg { color: #c0392b; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-weight: 700; color: #555; margin-bottom: 5px; font-size: 0.9rem; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #bdc3c7; border-radius: 4px; font-size: 16px; }
+        input:focus { border-color: #3498db; outline: none; }
+
+        .results-area { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 6px; margin-top: 20px; }
+        .line-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.95rem; }
+        .total-line { font-weight: bold; font-size: 1.3rem; color: #2c3e50; border-top: 2px dashed #bdc3c7; padding-top: 10px; margin-top: 10px; }
+        
+        .status-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; width: 100%; text-align: center; box-sizing: border-box; margin-top: 5px; }
+        .bg-advance { background-color: #d1f2eb; color: #0e6251; border: 1px solid #a2d9ce; } /* Green */
+        .bg-prompt { background-color: #d6eaf8; color: #21618c; border: 1px solid #aed6f1; } /* Blue */
+        .bg-penalty { background-color: #fadbd8; color: #943126; border: 1px solid #e6b0aa; } /* Red */
+
+        button { background-color: #34495e; color: white; border: none; padding: 12px; width: 100%; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 20px; transition: 0.2s; }
+        button:hover { background-color: #2c3e50; }
+
+        /* PRINT STYLES - This hides the inputs and only shows the slip when printing */
+        @media print {
+            body * { visibility: hidden; }
+            .print-area, .print-area * { visibility: visible; }
+            .print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 20px; border: none; box-shadow: none; }
+            button, label, input, .no-print { display: none !important; }
+            h2 { font-size: 18px; text-align: center; }
+            .line-item { font-size: 14px; margin-bottom: 5px; border-bottom: 1px dotted #ccc; padding-bottom: 2px; }
+            .total-line { font-size: 18px; margin-top: 20px; }
+            .footer-note { display: block !important; margin-top: 30px; font-size: 10px; text-align: center; font-style: italic; }
+        }
+        .footer-note { display: none; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>RPT Collection (2026)</h2>
-
-    <label>Assessed Value (from TD)</label>
-    <input type="number" id="assessedValue" placeholder="e.g. 20000" oninput="calculateTax()">
-
-    <label>Transaction Date</label>
-    <input type="date" id="txnDate" onchange="calculateTax()">
-
-    <input type="hidden" id="basicRate" value="0.01">
-    <input type="hidden" id="sefRate" value="0.01">
-
-    <div class="results">
-        <div class="row">
-            <span>Basic Tax (1%):</span>
-            <span id="basicVal">₱ 0.00</span>
-        </div>
-        <div class="row">
-            <span>SEF (1%):</span>
-            <span id="sefVal">₱ 0.00</span>
-        </div>
-        
-        <div class="row">
-            <span id="adjLabel">Adjustment:</span>
-            <span id="adjVal">₱ 0.00</span>
+<div class="card print-area">
+    <h2>REAL PROPERTY TAX COMPUTATION</h2>
+    
+    <div class="no-print">
+        <div class="input-group">
+            <label>Assessed Value (From TD)</label>
+            <input type="number" id="assessedVal" placeholder="0.00" oninput="compute()">
         </div>
 
-        <div class="row total">
-            <span>TOTAL AMOUNT DUE:</span>
-            <span id="totalDue">₱ 0.00</span>
+        <div class="input-group" style="display: flex; gap: 10px;">
+            <div style="flex: 1;">
+                <label>Tax Year (Collecting For)</label>
+                <input type="number" id="taxYear" placeholder="YYYY" oninput="compute()">
+            </div>
+            <div style="flex: 1;">
+                <label>Transaction Date</label>
+                <input type="date" id="txnDate" onchange="compute()">
+            </div>
         </div>
-        
-        <div id="statusMessage" class="status-msg"></div>
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
     </div>
+
+    <div class="results-area">
+        <div class="line-item">
+            <span>Tax Year:</span>
+            <span id="dispTaxYear">-</span>
+        </div>
+        <div class="line-item">
+            <span>Assessed Value:</span>
+            <span id="dispAssessed">-</span>
+        </div>
+        <div class="line-item">
+            <span>Basic Tax (1%):</span>
+            <span id="dispBasic">0.00</span>
+        </div>
+        <div class="line-item">
+            <span>SEF (1%):</span>
+            <span id="dispSef">0.00</span>
+        </div>
+        
+        <div class="line-item" style="color: #555; font-style: italic; margin-top: 10px;">
+            <span id="adjLabel">Adjustment:</span>
+            <span id="adjAmount">0.00</span>
+        </div>
+
+        <div id="statusBadge" class="status-badge" style="display:none;"></div>
+
+        <div class="line-item total-line">
+            <span>TOTAL AMOUNT DUE:</span>
+            <span id="dispTotal">₱ 0.00</span>
+        </div>
+    </div>
+
+    <div class="footer-note">
+        <p>Verified by Revenue Collection Clerk</p>
+        <p>This is a system-generated estimate. Official Receipt required for validity.</p>
+    </div>
+
+    <button onclick="window.print()" class="no-print">🖨️ Print Summary for Client</button>
 </div>
 
 <script src="script.js"></script>
