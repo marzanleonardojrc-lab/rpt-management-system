@@ -1,129 +1,146 @@
+// Set defaults on load
 document.addEventListener('DOMContentLoaded', () => {
-    // Default to today
     const today = new Date();
     document.getElementById('txnDate').valueAsDate = today;
     document.getElementById('taxYear').value = today.getFullYear();
-    compute();
+    computeTax();
 });
 
-function compute() {
-    // 1. Get Values
+function computeTax() {
+    // 1. Get Inputs
     const assessedVal = parseFloat(document.getElementById('assessedVal').value) || 0;
-    const targetTaxYear = parseInt(document.getElementById('taxYear').value); // The year being paid for
+    const taxYear = parseInt(document.getElementById('taxYear').value);
     const txnDateVal = document.getElementById('txnDate').value;
-
-    if (!txnDateVal || !targetTaxYear) return;
+    
+    if (!txnDateVal || !taxYear) return;
 
     // 2. Constants
     const BASIC_RATE = 0.01;
     const SEF_RATE = 0.01;
-    const ADVANCE_DISCOUNT = 0.20; // 20% for Advance
-    const PROMPT_DISCOUNT = 0.10;  // 10% for Prompt (Jan-Mar)
-    const PENALTY_RATE = 0.02;     // 2% per month
-    const MAX_PENALTY_MONTHS = 36; // Cap at 72%
+    const MAX_PENALTY_MONTHS = 36;
+    const PENALTY_RATE_PER_MONTH = 0.02;
+    const DISCOUNT_RATE = 0.20; // 20% if paid early
 
-    // 3. Dates
-    const txnDate = new Date(txnDateVal);
-    const txnYear = txnDate.getFullYear();
-    const txnMonth = txnDate.getMonth(); // 0 = Jan, 11 = Dec
-
-    // 4. Base Tax Calculation
+    // 3. Compute Base Tax
     const basicTax = assessedVal * BASIC_RATE;
     const sefTax = assessedVal * SEF_RATE;
     const grossTax = basicTax + sefTax;
 
-    // 5. Logic Branching
+    // 4. Time Logic
+    const txnDate = new Date(txnDateVal);
+    const txnYear = txnDate.getFullYear();
+    const txnMonth = txnDate.getMonth(); // 0 = Jan, 11 = Dec
+
     let adjustment = 0;
     let label = "Adjustment";
-    let statusText = "";
-    let statusClass = "";
+    let statusMsg = "";
+    let statusType = ""; // 'status-penalty' or 'status-discount'
 
-    // SCENARIO A: ADVANCE PAYMENT (Paying for Future Year)
-    // Rule: Transaction Year is strictly LESS than Tax Year
-    if (txnYear < targetTaxYear) {
-        adjustment = -(grossTax * ADVANCE_DISCOUNT);
-        label = `Less: Advance Discount (20%)`;
-        statusText = `ADVANCE PAYMENT (Applied to ${targetTaxYear})`;
-        statusClass = "bg-advance";
+    // LOGIC START
+    
+    // Case A: Paying for a Future Year (Advance Payment) -> Max Discount
+    if (taxYear > txnYear) {
+        adjustment = -(grossTax * DISCOUNT_RATE);
+        label = "Less: Advance Discount (20%)";
+        statusMsg = "Advance Payment for " + taxYear;
+        statusType = "status-discount";
     }
-
-    // SCENARIO B: CURRENT YEAR PAYMENT
-    // Rule: Transaction Year is EQUAL to Tax Year
-    else if (txnYear === targetTaxYear) {
-        
-        // Jan (0) to March (2) -> Prompt Payment 10%
+    
+    // Case B: Paying for Current Year (e.g., Tax Year 2026, Txn Year 2026)
+    else if (taxYear === txnYear) {
+        // Q1 (Jan-Mar) -> Discount
         if (txnMonth <= 2) { 
-            adjustment = -(grossTax * PROMPT_DISCOUNT);
-            label = `Less: Prompt Discount (10%)`;
-            statusText = `PROMPT PAYMENT (Q1 ${targetTaxYear})`;
-            statusClass = "bg-prompt";
+            adjustment = -(grossTax * DISCOUNT_RATE);
+            label = "Less: Prompt Discount (20%)";
+            statusMsg = "Prompt Payment (Q1)";
+            statusType = "status-discount";
         } 
-        // April (3) onwards -> Penalty
+        // Q2 onwards -> Penalty starts
         else {
-            // April is month 3. It is considered 1 month late? 
-            // Usually deadline is March 31. April 1 starts penalty.
-            // Formula: Month Index - 2. (April=3, 3-2=1)
+            // April is month 3. 
+            // If month is 3 (April), penalty is 2% (1 month)?? 
+            // Usually: End of March is deadline. April 1 starts penalty?
+            // Standard: April = 2% interest.
+            // Formula: (Month Index - 2) * 2%
+            // April (3) - 2 = 1 * 2% = 2%
             const monthsLate = txnMonth - 2; 
-            adjustment = grossTax * (monthsLate * PENALTY_RATE);
+            adjustment = grossTax * (monthsLate * PENALTY_RATE_PER_MONTH);
             label = `Add: Penalty (${monthsLate * 2}%)`;
-            statusText = `LATE PAYMENT (${monthsLate} months)`;
-            statusClass = "bg-penalty";
+            statusMsg = `Current Year Delinquency: ${monthsLate} month(s)`;
+            statusType = "status-penalty";
         }
     }
 
-    // SCENARIO C: DELINQUENCY (Paying for Past Year)
-    // Rule: Transaction Year is GREATER than Tax Year
+    // Case C: Paying for PAST Years (DELINQUENCY)
+    // This handles your 36-month cap request
     else {
-        // Calculate months from Jan 1 of Tax Year? 
-        // Or Jan 1 of year following tax year?
-        // Standard: Penalty usually accrues from the time it was due.
-        // Simple logic: Count total months difference from March 31 of Tax Year.
+        // Calculate total months difference
+        // From January 1 of TaxYear to TxnDate
+        // Actually, penalty usually starts counting from April of the Tax Year??
+        // SIMPLIFIED GOVERNMENT RULE:
+        // Delinquency starts from January 1 of the NEXT year? 
+        // OR does it accumulate from the tax year itself?
         
-        let monthsLate = ((txnYear - targetTaxYear) * 12) + (txnMonth - 2);
+        // STANDARD INTERPRETATION:
+        // If 2024 Tax is unpaid, and you pay in Jan 2026:
+        // 2024 (Jan-Dec) + 2025 (Jan-Dec) + 2026 (Jan)
         
-        // Cap at 36 months
+        // Let's use the standard "Month Counting" formula used in Treasuries:
+        // (TxnYear - TaxYear) * 12 + (TxnMonth - StartingPenaltyMonth)
+        // But usually, prior years are fully 24% per year?
+        
+        // Let's do the rigorous count:
+        // Total Months = (TxnYear - TaxYear) * 12 + txnMonth
+        // But we must subtract the "grace period" (Jan-Mar of the tax year)
+        // Actually, for past years, the entire year is usually considered late.
+        
+        // Let's stick to your specific rule: "2% per month, max 72%"
+        // We count months from January 1 of the Tax Year? Or April? 
+        // Usually, penalty accrues from the time it was due.
+        
+        // Implementation:
+        // We calculate months elapsed since March 31 of the Tax Year.
+        const deadline = new Date(taxYear, 2, 31); // March 31 of Tax Year
+        
+        // Difference in months
+        let monthsLate = (txnYear - taxYear) * 12 + (txnMonth - 2);
+        
+        // Cap at 36 months (72%)
         if (monthsLate > MAX_PENALTY_MONTHS) {
             monthsLate = MAX_PENALTY_MONTHS;
-            statusText = `DELINQUENT (${targetTaxYear}) - Max Penalty Reached`;
+            statusMsg = "Max Penalty Reached (36 Months / 72%)";
         } else {
-            statusText = `DELINQUENT (${targetTaxYear}) - ${monthsLate} Months Late`;
+            statusMsg = `Past Year Delinquency: ${monthsLate} Months`;
         }
-        
-        // Ensure no negative months (just in case)
-        if (monthsLate < 0) monthsLate = 0;
 
-        adjustment = grossTax * (monthsLate * PENALTY_RATE);
-        label = `Add: Penalty (${(monthsLate * 2).toFixed(0)}%)`;
-        statusClass = "bg-penalty";
+        if (monthsLate < 0) monthsLate = 0; // Just in case
+        
+        const penaltyRate = monthsLate * PENALTY_RATE_PER_MONTH;
+        adjustment = grossTax * penaltyRate;
+        
+        label = `Add: Penalty (${(penaltyRate * 100).toFixed(0)}%)`;
+        statusType = "status-penalty";
     }
 
-    // 6. Compute Total
+    // 5. Final Calculation
     const totalDue = grossTax + adjustment;
 
-    // 7. Update UI
-    document.getElementById('dispTaxYear').textContent = targetTaxYear;
-    document.getElementById('dispAssessed').textContent = formatMoney(assessedVal);
-    document.getElementById('dispBasic').textContent = formatMoney(basicTax);
-    document.getElementById('dispSef').textContent = formatMoney(sefTax);
+    // 6. Display
+    document.getElementById('basicTxt').textContent = formatVal(basicTax);
+    document.getElementById('sefTxt').textContent = formatVal(sefTax);
+    document.getElementById('grossTxt').textContent = formatVal(grossTax);
     
     document.getElementById('adjLabel').textContent = label;
-    document.getElementById('adjAmount').textContent = formatMoney(adjustment);
+    document.getElementById('adjTxt').textContent = formatVal(adjustment);
+    document.getElementById('totalTxt').textContent = formatVal(totalDue);
     
-    // Color coding adjustment amount
-    const adjElem = document.getElementById('adjAmount');
-    if (adjustment < 0) adjElem.style.color = "#16a085"; // Green
-    else if (adjustment > 0) adjElem.style.color = "#c0392b"; // Red
-    else adjElem.style.color = "#333";
-
-    document.getElementById('dispTotal').textContent = formatMoney(totalDue);
-
-    // Status Badge
-    const badge = document.getElementById('statusBadge');
-    badge.style.display = 'block';
-    badge.className = "status-badge " + statusClass;
-    badge.textContent = statusText;
+    // Status Box
+    const box = document.getElementById('statusBox');
+    box.style.display = 'block';
+    box.textContent = statusMsg;
+    box.className = "status-box " + statusType;
 }
 
-function formatMoney(num) {
+function formatVal(num) {
     return '₱ ' + num.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
