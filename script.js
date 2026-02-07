@@ -1,76 +1,103 @@
 /**
- * Real Property Tax (RPT) Calculator
- * Designed for: Municipal Treasurer's Office usage
- * Tax Year: 2026
+ * RPT Collection Logic
+ * Based on Assessment Value (No reassessment)
+ * Automatic computation based on Transaction Date
  */
 
-// Configuration: Adjust these constants based on your local ordinance
-const RPT_CONFIG = {
-    basicRate: 0.01,       // 1% Basic Tax for Province/Municipality (Use 0.02 for Cities)
-    sefRate: 0.01,         // 1% Special Education Fund (Fixed)
-    penaltyRate: 0.02,     // 2% Interest per month of delay
-    maxPenaltyMonths: 36,  // Max 36 months (72%) cap usually
-    discountRate: 0.20     // 20% Prompt Payment Discount (Common for Jan-Mar payments)
-};
+function calculateTax() {
+    // 1. Get Inputs
+    const assessedValue = parseFloat(document.getElementById('assessedValue').value) || 0;
+    const dateInput = document.getElementById('txnDate').value;
+    
+    // Rates (Standard 1% Basic + 1% SEF)
+    const basicRate = 0.01;
+    const sefRate = 0.01;
 
-function calculateRPT() {
-    // 1. Get Input Values
-    // Use parseFloat to ensure we are doing math, not string concatenation
-    const fmv = parseFloat(document.getElementById('fmv').value) || 0; 
-    const assessmentLevel = parseFloat(document.getElementById('assessmentLevel').value) || 0;
-    const isEarlyPayment = document.getElementById('availDiscount').checked; // Checkbox for discount
-    const monthsDelayed = parseFloat(document.getElementById('monthsDelayed').value) || 0; // 0 if current
-
-    // 2. Compute Assessed Value
-    // Formula: Fair Market Value * Assessment Level
-    const assessedValue = fmv * assessmentLevel;
-
-    // 3. Compute Gross Tax (Basic + SEF)
-    // Note: Basic and SEF are usually computed separately for accounting, but summed for the payer
-    const basicTax = assessedValue * RPT_CONFIG.basicRate;
-    const sefTax = assessedValue * RPT_CONFIG.sefRate;
+    // 2. Calculate Base Tax
+    const basicTax = assessedValue * basicRate;
+    const sefTax = assessedValue * sefRate;
     const grossTax = basicTax + sefTax;
 
-    // 4. Compute Deductions (Discount) or Additions (Penalties)
-    let discountAmount = 0;
-    let penaltyAmount = 0;
+    // 3. Date Logic (The Core Request)
+    let adjustment = 0;
+    let totalAmount = 0;
+    let statusText = "";
+    let statusClass = "";
+    let labelText = "Adjustment:";
 
-    if (isEarlyPayment) {
-        // Apply Discount if paid within Q1 2026
-        discountAmount = grossTax * RPT_CONFIG.discountRate;
-    } else if (monthsDelayed > 0) {
-        // Apply Penalty if late
-        // Cap the months at the maximum allowed (usually 36 months)
-        const chargeableMonths = Math.min(monthsDelayed, RPT_CONFIG.maxPenaltyMonths);
-        penaltyAmount = grossTax * (RPT_CONFIG.penaltyRate * chargeableMonths);
+    if (dateInput) {
+        const txnDate = new Date(dateInput);
+        const month = txnDate.getMonth(); // 0 = Jan, 1 = Feb, ... 11 = Dec
+        const year = txnDate.getFullYear();
+
+        // LOGIC FOR YEAR 2026
+        if (year === 2026) {
+            
+            // Q1: January (0) to March (2) -> DISCOUNT PERIOD
+            if (month <= 2) { 
+                // 20% Prompt Payment Discount (Standard)
+                const discountRate = 0.20; 
+                adjustment = -(grossTax * discountRate); // Negative because it reduces tax
+                
+                labelText = "Less: 20% Discount";
+                statusText = "Prompt Payment Discount Applied (Q1)";
+                statusClass = "discount-msg";
+            
+            // Q2-Q4: April (3) onwards -> PENALTY PERIOD
+            } else {
+                // Count months of delay starting from April
+                // April (3) = 1 month late (2%)
+                // May (4) = 2 months late (4%)
+                const monthsLate = month - 2; 
+                const penaltyRate = 0.02 * monthsLate; // 2% per month
+                
+                adjustment = grossTax * penaltyRate; // Positive because it adds to tax
+                
+                labelText = `Add: Penalty (${monthsLate * 2}%)`;
+                statusText = `Late Payment: ${monthsLate} month(s) interest applied`;
+                statusClass = "penalty-msg";
+            }
+
+        } else if (year < 2026) {
+             statusText = "Warning: Date is in the past.";
+        } else {
+             statusText = "Warning: Future tax year.";
+        }
     }
 
-    // 5. Compute Net Payable
-    const netPayable = grossTax - discountAmount + penaltyAmount;
+    // 4. Final Total
+    totalAmount = grossTax + adjustment;
 
-    // 6. Display Results (Pushing values back to HTML)
-    displayResult('assessedValueDisplay', assessedValue);
-    displayResult('basicTaxDisplay', basicTax);
-    displayResult('sefTaxDisplay', sefTax);
-    displayResult('discountDisplay', discountAmount);
-    displayResult('penaltyDisplay', penaltyAmount);
-    displayResult('netPayableDisplay', netPayable);
+    // 5. Update UI
+    document.getElementById('basicVal').textContent = formatMoney(basicTax);
+    document.getElementById('sefVal').textContent = formatMoney(sefTax);
+    
+    // Update Adjustment Row
+    document.getElementById('adjLabel').textContent = labelText;
+    document.getElementById('adjVal').textContent = formatMoney(adjustment);
+    
+    // Color coding for discount vs penalty
+    const adjValElement = document.getElementById('adjVal');
+    if (adjustment < 0) adjValElement.style.color = "#27ae60"; // Green for discount
+    else if (adjustment > 0) adjValElement.style.color = "#c0392b"; // Red for penalty
+    else adjValElement.style.color = "#333";
+
+    document.getElementById('totalDue').textContent = formatMoney(totalAmount);
+    
+    // Status Message
+    const msgEl = document.getElementById('statusMessage');
+    msgEl.textContent = statusText;
+    msgEl.className = "status-msg " + statusClass;
 }
 
-// Helper function to format currency (PHP)
-function displayResult(elementId, amount) {
-    const element = document.getElementById(elementId);
-    if (element) {
-        element.innerText = '₱ ' + amount.toLocaleString('en-PH', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
-    }
+// Helper for Peso formatting
+function formatMoney(amount) {
+    return '₱ ' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// Event Listener: Auto-calculate when inputs change
-// You need to ensure your HTML inputs have the class 'rpt-input'
-const inputs = document.querySelectorAll('.rpt-input');
-inputs.forEach(input => {
-    input.addEventListener('input', calculateRPT);
+// Set default date to today automatically when page loads
+document.addEventListener("DOMContentLoaded", function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('txnDate').value = today;
+    calculateTax(); // Run once on load
 });
