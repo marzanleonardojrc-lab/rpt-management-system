@@ -1,103 +1,129 @@
-/**
- * RPT Collection Logic
- * Based on Assessment Value (No reassessment)
- * Automatic computation based on Transaction Date
- */
+document.addEventListener('DOMContentLoaded', () => {
+    // Default to today
+    const today = new Date();
+    document.getElementById('txnDate').valueAsDate = today;
+    document.getElementById('taxYear').value = today.getFullYear();
+    compute();
+});
 
-function calculateTax() {
-    // 1. Get Inputs
-    const assessedValue = parseFloat(document.getElementById('assessedValue').value) || 0;
-    const dateInput = document.getElementById('txnDate').value;
-    
-    // Rates (Standard 1% Basic + 1% SEF)
-    const basicRate = 0.01;
-    const sefRate = 0.01;
+function compute() {
+    // 1. Get Values
+    const assessedVal = parseFloat(document.getElementById('assessedVal').value) || 0;
+    const targetTaxYear = parseInt(document.getElementById('taxYear').value); // The year being paid for
+    const txnDateVal = document.getElementById('txnDate').value;
 
-    // 2. Calculate Base Tax
-    const basicTax = assessedValue * basicRate;
-    const sefTax = assessedValue * sefRate;
+    if (!txnDateVal || !targetTaxYear) return;
+
+    // 2. Constants
+    const BASIC_RATE = 0.01;
+    const SEF_RATE = 0.01;
+    const ADVANCE_DISCOUNT = 0.20; // 20% for Advance
+    const PROMPT_DISCOUNT = 0.10;  // 10% for Prompt (Jan-Mar)
+    const PENALTY_RATE = 0.02;     // 2% per month
+    const MAX_PENALTY_MONTHS = 36; // Cap at 72%
+
+    // 3. Dates
+    const txnDate = new Date(txnDateVal);
+    const txnYear = txnDate.getFullYear();
+    const txnMonth = txnDate.getMonth(); // 0 = Jan, 11 = Dec
+
+    // 4. Base Tax Calculation
+    const basicTax = assessedVal * BASIC_RATE;
+    const sefTax = assessedVal * SEF_RATE;
     const grossTax = basicTax + sefTax;
 
-    // 3. Date Logic (The Core Request)
+    // 5. Logic Branching
     let adjustment = 0;
-    let totalAmount = 0;
+    let label = "Adjustment";
     let statusText = "";
     let statusClass = "";
-    let labelText = "Adjustment:";
 
-    if (dateInput) {
-        const txnDate = new Date(dateInput);
-        const month = txnDate.getMonth(); // 0 = Jan, 1 = Feb, ... 11 = Dec
-        const year = txnDate.getFullYear();
+    // SCENARIO A: ADVANCE PAYMENT (Paying for Future Year)
+    // Rule: Transaction Year is strictly LESS than Tax Year
+    if (txnYear < targetTaxYear) {
+        adjustment = -(grossTax * ADVANCE_DISCOUNT);
+        label = `Less: Advance Discount (20%)`;
+        statusText = `ADVANCE PAYMENT (Applied to ${targetTaxYear})`;
+        statusClass = "bg-advance";
+    }
 
-        // LOGIC FOR YEAR 2026
-        if (year === 2026) {
-            
-            // Q1: January (0) to March (2) -> DISCOUNT PERIOD
-            if (month <= 2) { 
-                // 20% Prompt Payment Discount (Standard)
-                const discountRate = 0.20; 
-                adjustment = -(grossTax * discountRate); // Negative because it reduces tax
-                
-                labelText = "Less: 20% Discount";
-                statusText = "Prompt Payment Discount Applied (Q1)";
-                statusClass = "discount-msg";
-            
-            // Q2-Q4: April (3) onwards -> PENALTY PERIOD
-            } else {
-                // Count months of delay starting from April
-                // April (3) = 1 month late (2%)
-                // May (4) = 2 months late (4%)
-                const monthsLate = month - 2; 
-                const penaltyRate = 0.02 * monthsLate; // 2% per month
-                
-                adjustment = grossTax * penaltyRate; // Positive because it adds to tax
-                
-                labelText = `Add: Penalty (${monthsLate * 2}%)`;
-                statusText = `Late Payment: ${monthsLate} month(s) interest applied`;
-                statusClass = "penalty-msg";
-            }
-
-        } else if (year < 2026) {
-             statusText = "Warning: Date is in the past.";
-        } else {
-             statusText = "Warning: Future tax year.";
+    // SCENARIO B: CURRENT YEAR PAYMENT
+    // Rule: Transaction Year is EQUAL to Tax Year
+    else if (txnYear === targetTaxYear) {
+        
+        // Jan (0) to March (2) -> Prompt Payment 10%
+        if (txnMonth <= 2) { 
+            adjustment = -(grossTax * PROMPT_DISCOUNT);
+            label = `Less: Prompt Discount (10%)`;
+            statusText = `PROMPT PAYMENT (Q1 ${targetTaxYear})`;
+            statusClass = "bg-prompt";
+        } 
+        // April (3) onwards -> Penalty
+        else {
+            // April is month 3. It is considered 1 month late? 
+            // Usually deadline is March 31. April 1 starts penalty.
+            // Formula: Month Index - 2. (April=3, 3-2=1)
+            const monthsLate = txnMonth - 2; 
+            adjustment = grossTax * (monthsLate * PENALTY_RATE);
+            label = `Add: Penalty (${monthsLate * 2}%)`;
+            statusText = `LATE PAYMENT (${monthsLate} months)`;
+            statusClass = "bg-penalty";
         }
     }
 
-    // 4. Final Total
-    totalAmount = grossTax + adjustment;
+    // SCENARIO C: DELINQUENCY (Paying for Past Year)
+    // Rule: Transaction Year is GREATER than Tax Year
+    else {
+        // Calculate months from Jan 1 of Tax Year? 
+        // Or Jan 1 of year following tax year?
+        // Standard: Penalty usually accrues from the time it was due.
+        // Simple logic: Count total months difference from March 31 of Tax Year.
+        
+        let monthsLate = ((txnYear - targetTaxYear) * 12) + (txnMonth - 2);
+        
+        // Cap at 36 months
+        if (monthsLate > MAX_PENALTY_MONTHS) {
+            monthsLate = MAX_PENALTY_MONTHS;
+            statusText = `DELINQUENT (${targetTaxYear}) - Max Penalty Reached`;
+        } else {
+            statusText = `DELINQUENT (${targetTaxYear}) - ${monthsLate} Months Late`;
+        }
+        
+        // Ensure no negative months (just in case)
+        if (monthsLate < 0) monthsLate = 0;
 
-    // 5. Update UI
-    document.getElementById('basicVal').textContent = formatMoney(basicTax);
-    document.getElementById('sefVal').textContent = formatMoney(sefTax);
-    
-    // Update Adjustment Row
-    document.getElementById('adjLabel').textContent = labelText;
-    document.getElementById('adjVal').textContent = formatMoney(adjustment);
-    
-    // Color coding for discount vs penalty
-    const adjValElement = document.getElementById('adjVal');
-    if (adjustment < 0) adjValElement.style.color = "#27ae60"; // Green for discount
-    else if (adjustment > 0) adjValElement.style.color = "#c0392b"; // Red for penalty
-    else adjValElement.style.color = "#333";
+        adjustment = grossTax * (monthsLate * PENALTY_RATE);
+        label = `Add: Penalty (${(monthsLate * 2).toFixed(0)}%)`;
+        statusClass = "bg-penalty";
+    }
 
-    document.getElementById('totalDue').textContent = formatMoney(totalAmount);
+    // 6. Compute Total
+    const totalDue = grossTax + adjustment;
+
+    // 7. Update UI
+    document.getElementById('dispTaxYear').textContent = targetTaxYear;
+    document.getElementById('dispAssessed').textContent = formatMoney(assessedVal);
+    document.getElementById('dispBasic').textContent = formatMoney(basicTax);
+    document.getElementById('dispSef').textContent = formatMoney(sefTax);
     
-    // Status Message
-    const msgEl = document.getElementById('statusMessage');
-    msgEl.textContent = statusText;
-    msgEl.className = "status-msg " + statusClass;
+    document.getElementById('adjLabel').textContent = label;
+    document.getElementById('adjAmount').textContent = formatMoney(adjustment);
+    
+    // Color coding adjustment amount
+    const adjElem = document.getElementById('adjAmount');
+    if (adjustment < 0) adjElem.style.color = "#16a085"; // Green
+    else if (adjustment > 0) adjElem.style.color = "#c0392b"; // Red
+    else adjElem.style.color = "#333";
+
+    document.getElementById('dispTotal').textContent = formatMoney(totalDue);
+
+    // Status Badge
+    const badge = document.getElementById('statusBadge');
+    badge.style.display = 'block';
+    badge.className = "status-badge " + statusClass;
+    badge.textContent = statusText;
 }
 
-// Helper for Peso formatting
-function formatMoney(amount) {
-    return '₱ ' + amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatMoney(num) {
+    return '₱ ' + num.toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
-
-// Set default date to today automatically when page loads
-document.addEventListener("DOMContentLoaded", function() {
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('txnDate').value = today;
-    calculateTax(); // Run once on load
-});
